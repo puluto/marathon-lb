@@ -161,12 +161,14 @@ class Marathon(object):
         self.__strict_mode = strict_mode
         self.__auth = auth
         self.__cycle_hosts = cycle(self.__hosts)
+        self.__current_host = False
         self.__verify = False
         if ca_cert:
             self.__verify = ca_cert
 
     def api_req_raw(self, method, path, auth, body=None, **kwargs):
-        for host in self.__hosts:
+        host = self.__current_host
+        if host:
             path_str = os.path.join(host, 'v2')
 
             for path_elem in path:
@@ -185,8 +187,8 @@ class Marathon(object):
             )
 
             logger.debug("%s %s", method, response.url)
-            if response.status_code == 200:
-                break
+            #if response.status_code == 200:
+            #    break
 
         response.raise_for_status()
 
@@ -227,7 +229,8 @@ class Marathon(object):
         return self.api_req('GET', ['tasks'])["tasks"]
 
     def get_event_stream(self):
-        url = self.host + "/v2/events?plan-format=light&" + \
+        self.__current_host = self.host
+        url = self.__current_host + "/v2/events?plan-format=light&" + \
               "event_type=status_update_event&" + \
               "event_type=health_status_changed_event&" + \
               "event_type=api_post_event"
@@ -456,7 +459,7 @@ def config(apps, groups, bind_http_https, ssl_certs, templater,
 
     # This should handle situations where customers have a custom HAPROXY_HEAD
     # that includes the 'daemon' flag or does not expose listener fds:
-    if 'daemon' in config.split() or "expose-fd listeners" not in config:
+    if 'daemon' in config or "expose-fd listeners" not in config:
         upgrade_warning = '''\
 Error in custom HAPROXY_HEAD template: \
 In Marathon-LB 1.12, the default HAPROXY_HEAD section changed, please \
@@ -1603,11 +1606,8 @@ def get_apps(marathon, apps=[]):
                         old = new
                         new = temp
 
-                target_instances = \
-                    int(new['labels']['HAPROXY_DEPLOYMENT_TARGET_INSTANCES'])
-
-            else:
-                target_instances = 1
+            target_instances = \
+                int(new['labels']['HAPROXY_DEPLOYMENT_TARGET_INSTANCES'])
 
             # Mark N tasks from old app as draining, where N is the
             # number of instances in the new app.  Sort the old tasks so that
